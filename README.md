@@ -21,7 +21,7 @@ A aplicação aceita variáveis de ambiente e flags de linha de comando:
 | `OMNIROUTE_BASE_URL` | `-base-url` | `http://localhost:20128` | URL base da instância do OmniRoute |
 | `OMNIROUTE_API_KEY` | `-api-key` | *(vazio)* | Token/chave de autorização Bearer do OmniRoute |
 | `COMBO_NAME` | `-combo-name` | `combobreak` | Nome do combo criado ou atualizado |
-| `COMBO_STRATEGY` | `-strategy` | `priority` | Estratégia de roteamento do combo (`priority`, `round-robin`, etc.) |
+| `COMBO_STRATEGY` | `-strategy` | `context-optimized` | Estratégia de roteamento do combo (`context-optimized`, `priority`, `round-robin`, etc.) |
 | — | `-dry-run` | `false` | Apenas simula e lista os modelos que seriam adicionados |
 | — | `-verbose` | `false` | Exibe logs detalhados de avaliação de cada modelo |
 | — | `-interval` | `0` *(executa uma vez)* | Intervalo de sincronização contínua (ex: `30m`, `1h`) |

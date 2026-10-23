@@ -30,7 +30,7 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 		BaseURL:   getEnvOrDefault("OMNIROUTE_BASE_URL", "http://localhost:20128"),
 		APIKey:    os.Getenv("OMNIROUTE_API_KEY"),
 		ComboName: getEnvOrDefault("COMBO_NAME", "combobreak"),
-		Strategy:  getEnvOrDefault("COMBO_STRATEGY", "priority"),
+		Strategy:  getEnvOrDefault("COMBO_STRATEGY", "context-optimized"),
 		Timeout:   30 * time.Second,
 	}
 
@@ -38,7 +38,7 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 	fs.StringVar(&cfg.BaseURL, "base-url", cfg.BaseURL, "OmniRoute base URL (env: OMNIROUTE_BASE_URL)")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "OmniRoute API Key (env: OMNIROUTE_API_KEY)")
 	fs.StringVar(&cfg.ComboName, "combo-name", cfg.ComboName, "Name of the combo to create or update")
-	fs.StringVar(&cfg.Strategy, "strategy", cfg.Strategy, "Combo routing strategy (priority, round-robin, etc.)")
+	fs.StringVar(&cfg.Strategy, "strategy", cfg.Strategy, "Combo routing strategy (context-optimized, priority, round-robin, etc.)")
 	fs.BoolVar(&cfg.DryRun, "dry-run", false, "Preview matching models without modifying combos in OmniRoute")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "Enable verbose logging of model evaluations")
 	fs.DurationVar(&cfg.Interval, "interval", 0, "Periodic sync interval (e.g. 1h, 30m). If 0, runs once and exits")
@@ -57,7 +57,7 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 		cfg.ComboName = "combobreak"
 	}
 	if cfg.Strategy == "" {
-		cfg.Strategy = "priority"
+		cfg.Strategy = "context-optimized"
 	}
 
 	return cfg, nil

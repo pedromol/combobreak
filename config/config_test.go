@@ -28,6 +28,9 @@ func TestLoadFromEnvAndFlags(t *testing.T) {
 	if cfg.ComboName != "combobreak" {
 		t.Errorf("expected default combo name combobreak, got %s", cfg.ComboName)
 	}
+	if cfg.Strategy != "context-optimized" {
+		t.Errorf("expected default strategy context-optimized, got %s", cfg.Strategy)
+	}
 }
 
 func TestLoadFromEnvAndFlags_FlagOverride(t *testing.T) {
