@@ -31,6 +31,9 @@ func TestLoadFromEnvAndFlags(t *testing.T) {
 	if cfg.Strategy != "context-optimized" {
 		t.Errorf("expected default strategy context-optimized, got %s", cfg.Strategy)
 	}
+	if cfg.Timeout != 3*time.Second {
+		t.Errorf("expected default timeout 3s, got %v", cfg.Timeout)
+	}
 }
 
 func TestLoadFromEnvAndFlags_FlagOverride(t *testing.T) {

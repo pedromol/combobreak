@@ -379,3 +379,13 @@ func TestClient_RetryWithBackoff_Transient500(t *testing.T) {
 	}
 }
 
+func TestNewClient_DefaultHTTPClient(t *testing.T) {
+	client := NewClient("http://localhost:20128", "test-key", nil)
+	if client.HTTPClient == nil {
+		t.Fatal("expected non-nil HTTPClient")
+	}
+	if client.HTTPClient.Timeout != 3*time.Second {
+		t.Errorf("expected default timeout 3s, got %v", client.HTTPClient.Timeout)
+	}
+}
+

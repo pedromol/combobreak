@@ -31,7 +31,7 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 		APIKey:    os.Getenv("OMNIROUTE_API_KEY"),
 		ComboName: getEnvOrDefault("COMBO_NAME", "combobreak"),
 		Strategy:  getEnvOrDefault("COMBO_STRATEGY", "context-optimized"),
-		Timeout:   30 * time.Second,
+		Timeout:   3 * time.Second,
 	}
 
 	fs := flag.NewFlagSet("combobreak", flag.ContinueOnError)
