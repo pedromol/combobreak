@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: combobreak-sync
+  namespace: default
+  labels:
+    app.kubernetes.io/name: combobreak
+spec:
+  # Executa todos os dias às 03:00 da manhã
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: combobreak
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: combobreak
+              image: pedromol/combobreak:latest
+              imagePullPolicy: IfNotPresent
+              args:
+                - "-verbose"
+              env:
+                - name: OMNIROUTE_BASE_URL
+                  value: "http://omniroute.default.svc.cluster.local" # Porta 80 é default no HTTP
+                - name: OMNIROUTE_API_KEY
+                  value: "sk-sua-chave-api-omniroute-aqui"
+                - name: COMBO_NAME
+                  value: "combobreak"
+                - name: COMBO_STRATEGY
+                  value: "context-optimized"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "128Mi"
