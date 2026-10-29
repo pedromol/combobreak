@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestClient_GetModels(t *testing.T) {
@@ -143,3 +144,238 @@ func TestClient_UpsertCombo_UpdateExisting(t *testing.T) {
 		t.Errorf("expected combo with 2 models updated, got %+v", updatedCombo)
 	}
 }
+
+func TestClient_TestBatchProviders(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/providers/test-batch" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var req ProviderTestBatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode req body: %v", err)
+		}
+		if req.Mode != "all" {
+			t.Errorf("expected mode 'all', got %s", req.Mode)
+		}
+
+		resp := ProviderTestBatchResponse{
+			Results: []ProviderTestResult{
+				{Provider: "github", Valid: true},
+				{Provider: "ollama-cloud", Valid: true},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	results, err := client.TestBatchProviders(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 || results[0].Provider != "github" {
+		t.Errorf("unexpected results: %+v", results)
+	}
+}
+
+func TestClient_SyncAvailableModels(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/synced-available-models" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("provider") != "ollama-cloud" {
+			t.Errorf("expected provider 'ollama-cloud', got %s", r.URL.Query().Get("provider"))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"synced": true}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	if err := client.SyncAvailableModels(context.Background(), "ollama-cloud"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_GetProviderModels(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/provider-models" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("provider") != "ollama-cloud" {
+			t.Errorf("expected provider 'ollama-cloud', got %s", r.URL.Query().Get("provider"))
+		}
+
+		resp := ProviderModelsResponse{
+			ModelCompatOverrides: []ModelCompatOverride{
+				{ID: "deepseek-v4.1-flash:1017"},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	resp, err := client.GetProviderModels(context.Background(), "ollama-cloud")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.ModelCompatOverrides) != 1 || resp.ModelCompatOverrides[0].ID != "deepseek-v4.1-flash:1017" {
+		t.Errorf("unexpected response: %+v", resp)
+	}
+}
+
+func TestClient_UnhideProviderModels(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/provider-models" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("provider") != "ollama-cloud" {
+			t.Errorf("expected provider 'ollama-cloud', got %s", r.URL.Query().Get("provider"))
+		}
+
+		var req PatchProviderModelsBatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode req body: %v", err)
+		}
+		if req.IsHidden || req.Modality != "chat" || len(req.ModelIDs) != 1 || req.ModelIDs[0] != "gemma4:31b" {
+			t.Errorf("unexpected req body: %+v", req)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	if err := client.UnhideProviderModels(context.Background(), "ollama-cloud", []string{"gemma4:31b"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_TestModel_SuccessAndFunctionalError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/models/test" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		var req ModelTestRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode req body: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if req.ModelID == "ok-model" {
+			_ = json.NewEncoder(w).Encode(ModelTestResponse{
+				Status:       "ok",
+				LatencyMs:    123,
+				ResponseText: "pong",
+			})
+		} else {
+			w.WriteHeader(http.StatusPaymentRequired) // 402
+			_ = json.NewEncoder(w).Encode(ModelTestResponse{
+				Status:     "error",
+				LatencyMs:  456,
+				Error:      "quota exhausted",
+				StatusCode: 402,
+			})
+		}
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+
+	// Test success
+	okResp, err := client.TestModel(context.Background(), "github", "ok-model")
+	if err != nil {
+		t.Fatalf("unexpected error for ok-model: %v", err)
+	}
+	if okResp.Status != "ok" || okResp.ResponseText != "pong" {
+		t.Errorf("unexpected okResp: %+v", okResp)
+	}
+
+	// Test functional error (402 quota error)
+	errResp, err := client.TestModel(context.Background(), "github", "exhausted-model")
+	if err != nil {
+		t.Fatalf("unexpected transport error for exhausted-model: %v", err)
+	}
+	if errResp.Status != "error" || errResp.StatusCode != 402 {
+		t.Errorf("unexpected errResp: %+v", errResp)
+	}
+}
+
+func TestClient_HideProviderModel(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/provider-models" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("provider") != "ollama-cloud" {
+			t.Errorf("expected provider 'ollama-cloud', got %s", r.URL.Query().Get("provider"))
+		}
+		if r.URL.Query().Get("modelId") != "mistral-large-3:675b" {
+			t.Errorf("expected modelId 'mistral-large-3:675b', got %s", r.URL.Query().Get("modelId"))
+		}
+
+		var req PatchProviderModelRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode req body: %v", err)
+		}
+		if !req.IsHidden || req.Modality != "chat" {
+			t.Errorf("unexpected patch body: %+v", req)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	if err := client.HideProviderModel(context.Background(), "ollama-cloud", "mistral-large-3:675b"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_RetryWithBackoff_Transient500(t *testing.T) {
+	attempts := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("internal error"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "key", ts.Client())
+	client.RetryBaseDelay = 5 * time.Millisecond // fast backoff in test
+
+	respBody, status, err := client.doRequestWithRetry(context.Background(), http.MethodGet, "/test", nil, 3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != http.StatusOK || string(respBody) != `{"ok": true}` {
+		t.Errorf("unexpected response: status=%d, body=%s", status, string(respBody))
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
