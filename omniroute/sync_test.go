@@ -276,3 +276,160 @@ func TestSyncCoordinator_AllModelsFailed_PreservesCombo(t *testing.T) {
 		t.Errorf("expected 0 approved models, got %d", len(report.ModelsApproved))
 	}
 }
+
+func TestSyncCoordinator_IncrementalUpdatesPerModel(t *testing.T) {
+	var (
+		comboCreated int32
+		comboUpdated int32
+	)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_ = json.NewEncoder(w).Encode(ModelListResponse{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/providers/test-batch":
+			_ = json.NewEncoder(w).Encode(ProviderTestBatchResponse{
+				Results: []ProviderTestResult{{Provider: "prov-a", Valid: true}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/synced-available-models":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/provider-models":
+			_ = json.NewEncoder(w).Encode(ProviderModelsResponse{
+				Models: []ModelEntry{{ID: "model-1"}, {ID: "model-2"}},
+			})
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/provider-models":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/models/test":
+			_ = json.NewEncoder(w).Encode(ModelTestResponse{Status: "ok"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/combos":
+			_ = json.NewEncoder(w).Encode([]Combo{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/combos":
+			atomic.AddInt32(&comboCreated, 1)
+			var c Combo
+			_ = json.NewDecoder(r.Body).Decode(&c)
+			if len(c.Models) != 1 || c.Models[0].Model != "model-1" {
+				t.Errorf("expected combo created with 1st model 'model-1', got %+v", c.Models)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "combobreak"})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/combos/combobreak":
+			atomic.AddInt32(&comboUpdated, 1)
+			var c Combo
+			_ = json.NewDecoder(r.Body).Decode(&c)
+			if len(c.Models) != 2 || c.Models[1].Model != "model-2" {
+				t.Errorf("expected combo updated with 2 models including 'model-2', got %+v", c.Models)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "test-key", ts.Client())
+	client.RetryBaseDelay = 5 * time.Millisecond
+	filter := NewModelFilter("combobreak")
+	coordinator := NewSyncCoordinator(client, filter)
+
+	report, err := coordinator.Sync(context.Background(), "combobreak", "priority", false, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if report.Action != "updated" {
+		t.Errorf("expected action 'updated', got %q", report.Action)
+	}
+	if len(report.ModelsApproved) != 2 {
+		t.Errorf("expected 2 approved models, got %d", len(report.ModelsApproved))
+	}
+	if atomic.LoadInt32(&comboCreated) != 1 {
+		t.Errorf("expected combo to be created upon 1st discovery, got %d calls", comboCreated)
+	}
+	if atomic.LoadInt32(&comboUpdated) != 1 {
+		t.Errorf("expected combo to be updated upon 2nd discovery, got %d calls", comboUpdated)
+	}
+}
+
+func TestSyncCoordinator_RemovesFailedExistingModel(t *testing.T) {
+	var comboUpdated int32
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_ = json.NewEncoder(w).Encode(ModelListResponse{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/providers/test-batch":
+			_ = json.NewEncoder(w).Encode(ProviderTestBatchResponse{
+				Results: []ProviderTestResult{{Provider: "prov-a", Valid: true}},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/synced-available-models":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/provider-models":
+			_ = json.NewEncoder(w).Encode(ProviderModelsResponse{
+				Models: []ModelEntry{{ID: "broken-model"}, {ID: "good-model"}},
+			})
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/provider-models":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/models/test":
+			var req ModelTestRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req.ModelID == "broken-model" {
+				_ = json.NewEncoder(w).Encode(ModelTestResponse{Status: "error", Error: "quota depleted"})
+			} else {
+				_ = json.NewEncoder(w).Encode(ModelTestResponse{Status: "ok"})
+			}
+		case r.Method == http.MethodGet && r.URL.Path == "/api/combos":
+			// Existing combo has both models
+			_ = json.NewEncoder(w).Encode([]Combo{
+				{
+					ID:   "combobreak",
+					Name: "combobreak",
+					Models: []ComboStep{
+						{Model: "broken-model", ProviderID: "prov-a"},
+						{Model: "preserved-model", ProviderID: "prov-other"},
+					},
+				},
+			})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/combos/combobreak":
+			atomic.AddInt32(&comboUpdated, 1)
+			var c Combo
+			_ = json.NewDecoder(r.Body).Decode(&c)
+			// On 1st update: broken-model is removed, preserved-model remains
+			// On 2nd update: good-model is added
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "test-key", ts.Client())
+	client.RetryBaseDelay = 5 * time.Millisecond
+	filter := NewModelFilter("combobreak")
+	coordinator := NewSyncCoordinator(client, filter)
+
+	report, err := coordinator.Sync(context.Background(), "combobreak", "priority", false, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if report.Action != "updated" {
+		t.Errorf("expected action 'updated', got %q", report.Action)
+	}
+	if len(report.ModelsFailed) != 1 || report.ModelsFailed[0] != "prov-a/broken-model" {
+		t.Errorf("unexpected failed models: %+v", report.ModelsFailed)
+	}
+	// Models remaining: preserved-model + good-model = 2
+	if len(report.ModelsApproved) != 2 {
+		t.Errorf("expected 2 approved models in combo, got %d: %+v", len(report.ModelsApproved), report.ModelsApproved)
+	}
+	// comboUpdated should have been called twice: 1 for removal of broken-model, 1 for addition of good-model
+	if atomic.LoadInt32(&comboUpdated) != 2 {
+		t.Errorf("expected 2 incremental PUT calls to combo, got %d", comboUpdated)
+	}
+}
