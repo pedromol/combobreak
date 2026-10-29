@@ -17,53 +17,37 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
-func floatPtr(f float64) *float64 {
-	return &f
-}
-
 func TestRunSync_EndToEnd(t *testing.T) {
-	var modelsCalled int32
-	var combosListed int32
-	var comboPosted int32
+	var (
+		catalogCalled int32
+		batchCalled   int32
+		syncCalled    int32
+		modelsCalled  int32
+		unhideCalled  int32
+		testCalled    int32
+		hideCalled    int32
+		combosListed  int32
+		comboPosted   int32
+	)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
-			atomic.AddInt32(&modelsCalled, 1)
+			atomic.AddInt32(&catalogCalled, 1)
 			resp := omniroute.ModelListResponse{
 				Object: "list",
 				Data: []omniroute.ModelEntry{
 					{
-						ID: "provider/free-reasoner:free",
+						ID: "github/auto",
 						Capabilities: &omniroute.ModelCapabilities{
 							ToolCalling: boolPtr(true),
 							Reasoning:   boolPtr(true),
 						},
 					},
 					{
-						ID: "provider/free-cost-model",
-						Capabilities: &omniroute.ModelCapabilities{
-							Tools:    boolPtr(true),
-							Thinking: boolPtr(true),
-						},
-						Pricing: &omniroute.ModelPricing{
-							Input:  floatPtr(0),
-							Output: floatPtr(0),
-						},
-					},
-					{
-						ID: "provider/paid-model",
-						Capabilities: &omniroute.ModelCapabilities{
-							ToolCalling: boolPtr(true),
-							Reasoning:   boolPtr(true),
-						},
-						Pricing: &omniroute.ModelPricing{
-							Input:  floatPtr(5.0),
-							Output: floatPtr(15.0),
-						},
-					},
-					{
-						ID: "combobreak", // Should be ignored (prevent self reference)
+						ID: "mistral-large-3:675b",
 						Capabilities: &omniroute.ModelCapabilities{
 							ToolCalling: boolPtr(true),
 							Reasoning:   boolPtr(true),
@@ -71,12 +55,74 @@ func TestRunSync_EndToEnd(t *testing.T) {
 					},
 				},
 			}
-			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
+
+		case r.Method == http.MethodPost && r.URL.Path == "/api/providers/test-batch":
+			atomic.AddInt32(&batchCalled, 1)
+			errMsg := "Invalid API key"
+			resp := omniroute.ProviderTestBatchResponse{
+				Results: []omniroute.ProviderTestResult{
+					{
+						Provider: "github",
+						Valid:    true,
+						Error:    nil,
+					},
+					{
+						Provider: "uncloseai",
+						Valid:    false,
+						Error:    &errMsg,
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		case r.Method == http.MethodGet && r.URL.Path == "/api/synced-available-models":
+			atomic.AddInt32(&syncCalled, 1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"synced":true}`))
+
+		case r.Method == http.MethodGet && r.URL.Path == "/api/provider-models":
+			atomic.AddInt32(&modelsCalled, 1)
+			resp := omniroute.ProviderModelsResponse{
+				ModelCompatOverrides: []omniroute.ModelCompatOverride{
+					{ID: "gh/auto"},
+					{ID: "mistral-large-3:675b"},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/provider-models" && r.URL.Query().Get("modelId") == "":
+			atomic.AddInt32(&unhideCalled, 1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true,"updated":2}`))
+
+		case r.Method == http.MethodPost && r.URL.Path == "/api/models/test":
+			atomic.AddInt32(&testCalled, 1)
+			var req omniroute.ModelTestRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req.ModelID == "gh/auto" {
+				_ = json.NewEncoder(w).Encode(omniroute.ModelTestResponse{
+					Status:       "ok",
+					LatencyMs:    2470,
+					ResponseText: "pongpongpongpong",
+				})
+			} else {
+				w.WriteHeader(http.StatusPaymentRequired)
+				_ = json.NewEncoder(w).Encode(omniroute.ModelTestResponse{
+					Status:     "error",
+					LatencyMs:  636,
+					Error:      "[402]: this model is not included in your free usage",
+					StatusCode: 402,
+				})
+			}
+
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/provider-models" && r.URL.Query().Get("modelId") == "mistral-large-3:675b":
+			atomic.AddInt32(&hideCalled, 1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
 
 		case r.Method == http.MethodGet && r.URL.Path == "/api/combos":
 			atomic.AddInt32(&combosListed, 1)
-			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]omniroute.Combo{})
 
 		case r.Method == http.MethodPost && r.URL.Path == "/api/combos":
@@ -88,8 +134,11 @@ func TestRunSync_EndToEnd(t *testing.T) {
 			if c.Name != "combobreak" {
 				t.Errorf("expected combo name 'combobreak', got %s", c.Name)
 			}
-			if len(c.Models) != 2 {
-				t.Errorf("expected 2 models in combo, got %d", len(c.Models))
+			if len(c.Models) != 1 {
+				t.Errorf("expected exactly 1 approved model in combo, got %d", len(c.Models))
+			}
+			if c.Models[0].Model != "gh/auto" || c.Models[0].ProviderID != "github" {
+				t.Errorf("unexpected model in combo: %+v", c.Models[0])
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
@@ -111,20 +160,40 @@ func TestRunSync_EndToEnd(t *testing.T) {
 	}
 
 	client := omniroute.NewClient(cfg.BaseURL, cfg.APIKey, ts.Client())
+	client.RetryBaseDelay = 5 * time.Millisecond
 	filter := omniroute.NewModelFilter(cfg.ComboName)
+	coordinator := omniroute.NewSyncCoordinator(client, filter)
 
-	err := runSync(context.Background(), cfg, client, filter)
+	err := runSync(context.Background(), cfg, coordinator)
 	if err != nil {
 		t.Fatalf("runSync failed: %v", err)
 	}
 
+	if atomic.LoadInt32(&catalogCalled) != 1 {
+		t.Errorf("expected /v1/models called 1, got %d", catalogCalled)
+	}
+	if atomic.LoadInt32(&batchCalled) != 1 {
+		t.Errorf("expected test-batch called 1, got %d", batchCalled)
+	}
+	if atomic.LoadInt32(&syncCalled) != 1 {
+		t.Errorf("expected synced-available-models called 1, got %d", syncCalled)
+	}
 	if atomic.LoadInt32(&modelsCalled) != 1 {
-		t.Errorf("expected /v1/models to be called once, got %d", modelsCalled)
+		t.Errorf("expected provider-models called 1, got %d", modelsCalled)
+	}
+	if atomic.LoadInt32(&unhideCalled) != 1 {
+		t.Errorf("expected unhide called 1, got %d", unhideCalled)
+	}
+	if atomic.LoadInt32(&testCalled) != 2 {
+		t.Errorf("expected 2 model tests called, got %d", testCalled)
+	}
+	if atomic.LoadInt32(&hideCalled) != 1 {
+		t.Errorf("expected 1 model hide called, got %d", hideCalled)
 	}
 	if atomic.LoadInt32(&combosListed) != 1 {
-		t.Errorf("expected /api/combos (GET) to be called once, got %d", combosListed)
+		t.Errorf("expected /api/combos listed 1, got %d", combosListed)
 	}
 	if atomic.LoadInt32(&comboPosted) != 1 {
-		t.Errorf("expected /api/combos (POST) to be called once, got %d", comboPosted)
+		t.Errorf("expected /api/combos posted 1, got %d", comboPosted)
 	}
 }
