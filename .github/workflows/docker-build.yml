@@ -1,0 +1,66 @@
+name: Build and Push Docker Image with ko
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Push Multi-Arch Image (ko)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+
+      - name: Set up ko
+        uses: ko-build/setup-ko@v0.8
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/${{ secrets.DOCKERHUB_USERNAME || 'pedromol' }}/combobreak
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and Push Image with ko
+        env:
+          KO_DOCKER_REPO: docker.io/${{ secrets.DOCKERHUB_USERNAME || 'pedromol' }}/combobreak
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "${DOCKERHUB_TOKEN}" | ko login index.docker.io --username "${DOCKERHUB_USERNAME}" --password-stdin
+            PUSH_FLAG=""
+          else
+            PUSH_FLAG="--push=false"
+          fi
+
+          # Extract tag names from metadata-action output
+          TAGS_ARGS=$(echo "${{ steps.meta.outputs.tags }}" | awk -F':' '{print $NF}' | tr '\n' ',' | sed 's/,$//')
+          echo "Target repo: ${KO_DOCKER_REPO}"
+          echo "Tags to apply: ${TAGS_ARGS:-latest}"
+
+          ko build . \
+            --bare \
+            --platform=linux/amd64,linux/arm64 \
+            --tags="${TAGS_ARGS:-latest}" \
+            ${PUSH_FLAG}

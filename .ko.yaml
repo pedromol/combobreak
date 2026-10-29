@@ -1,0 +1,4 @@
+# Configuration for ko (https://ko.build)
+defaultPlatforms:
+  - linux/amd64
+  - linux/arm64

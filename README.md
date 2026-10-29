@@ -79,6 +79,27 @@ go build -o combobreak .
 ./combobreak
 ```
 
+### 5. Execução via Docker / Container
+
+A imagem multi-arquitetura (`linux/amd64` e `linux/arm64` para Raspberry Pi 4 e servidores ARMv8) é gerada via **[ko](https://ko.build)** e está disponível no Docker Hub:
+
+```bash
+docker run --rm \
+  -e OMNIROUTE_BASE_URL="http://seu-omniroute:20128" \
+  -e OMNIROUTE_API_KEY="seu_token" \
+  pedromol/combobreak -verbose
+```
+
+Para gerar a imagem localmente com `ko`:
+
+```bash
+make ko-build
+# ou
+ko build --bare --platform=linux/amd64,linux/arm64 --push=false .
+```
+
+
+
 ---
 
 ## 🧪 Testes

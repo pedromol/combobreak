@@ -1,0 +1,6 @@
+.git
+.github
+combobreak
+*.md
+*.log
+.env
