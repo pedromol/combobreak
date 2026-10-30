@@ -200,19 +200,20 @@ func (c *Client) UnhideProviderModels(ctx context.Context, provider string, mode
 	return nil
 }
 
-// TestModel performs an active test on a specific model via POST /api/models/test
+// TestModel performs an active test on a specific model via POST /api/models/test.
+// Testing an individual model does not retry on failures so slow or broken models fail fast.
 func (c *Client) TestModel(ctx context.Context, providerID, modelID string) (*ModelTestResponse, error) {
 	reqBody := ModelTestRequest{
 		ProviderID: providerID,
 		ModelID:    modelID,
 	}
 
-	respBody, statusCode, err := c.doRequestWithRetry(ctx, http.MethodPost, "/api/models/test", reqBody, 3)
+	respBody, statusCode, err := c.doRequest(ctx, http.MethodPost, "/api/models/test", reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to test model %s/%s: %w", providerID, modelID, err)
 	}
 
-	// Models may fail functional verification with HTTP 4xx (e.g. 402 Payment Required).
+	// Models may fail functional verification with HTTP 4xx or 5xx (e.g. 402 Payment Required, 504 Gateway Timeout).
 	// If response is valid JSON with status field, return it as functional test result.
 	var testResp ModelTestResponse
 	if unmarshalErr := json.Unmarshal(respBody, &testResp); unmarshalErr == nil && testResp.Status != "" {

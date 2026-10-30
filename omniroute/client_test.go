@@ -284,6 +284,13 @@ func TestClient_TestModel_SuccessAndFunctionalError(t *testing.T) {
 				LatencyMs:    123,
 				ResponseText: "pong",
 			})
+		} else if req.ModelID == "timeout-model" {
+			w.WriteHeader(http.StatusGatewayTimeout) // 504
+			_ = json.NewEncoder(w).Encode(ModelTestResponse{
+				Status:    "error",
+				LatencyMs: 30000,
+				Error:     "No model output within 30s",
+			})
 		} else {
 			w.WriteHeader(http.StatusPaymentRequired) // 402
 			_ = json.NewEncoder(w).Encode(ModelTestResponse{
@@ -314,6 +321,15 @@ func TestClient_TestModel_SuccessAndFunctionalError(t *testing.T) {
 	}
 	if errResp.Status != "error" || errResp.StatusCode != 402 {
 		t.Errorf("unexpected errResp: %+v", errResp)
+	}
+
+	// Test functional error (504 timeout error without retrying)
+	timeoutResp, err := client.TestModel(context.Background(), "github", "timeout-model")
+	if err != nil {
+		t.Fatalf("unexpected transport error for timeout-model: %v", err)
+	}
+	if timeoutResp.Status != "error" || timeoutResp.StatusCode != 504 {
+		t.Errorf("unexpected timeoutResp: %+v", timeoutResp)
 	}
 }
 
