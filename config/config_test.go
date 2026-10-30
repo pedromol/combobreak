@@ -31,8 +31,36 @@ func TestLoadFromEnvAndFlags(t *testing.T) {
 	if cfg.Strategy != "context-optimized" {
 		t.Errorf("expected default strategy context-optimized, got %s", cfg.Strategy)
 	}
-	if cfg.Timeout != 3*time.Second {
-		t.Errorf("expected default timeout 3s, got %v", cfg.Timeout)
+	if cfg.Timeout != 60*time.Second {
+		t.Errorf("expected default timeout 60s, got %v", cfg.Timeout)
+	}
+}
+
+func TestLoadFromEnvAndFlags_EnvTimeout(t *testing.T) {
+	_ = os.Setenv("OMNIROUTE_TIMEOUT", "45s")
+	defer func() {
+		_ = os.Unsetenv("OMNIROUTE_TIMEOUT")
+	}()
+
+	cfg, err := LoadFromEnvAndFlags([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Timeout != 45*time.Second {
+		t.Errorf("expected timeout 45s from env, got %v", cfg.Timeout)
+	}
+}
+
+func TestLoadFromEnvAndFlags_InvalidEnvTimeout(t *testing.T) {
+	_ = os.Setenv("OMNIROUTE_TIMEOUT", "invalid-duration")
+	defer func() {
+		_ = os.Unsetenv("OMNIROUTE_TIMEOUT")
+	}()
+
+	_, err := LoadFromEnvAndFlags([]string{})
+	if err == nil {
+		t.Fatal("expected error for invalid OMNIROUTE_TIMEOUT, got nil")
 	}
 }
 
@@ -44,6 +72,7 @@ func TestLoadFromEnvAndFlags_FlagOverride(t *testing.T) {
 		"-dry-run",
 		"-verbose",
 		"-interval", "15m",
+		"-timeout", "10s",
 	}
 
 	cfg, err := LoadFromEnvAndFlags(args)
@@ -68,5 +97,8 @@ func TestLoadFromEnvAndFlags_FlagOverride(t *testing.T) {
 	}
 	if cfg.Interval != 15*time.Minute {
 		t.Errorf("expected Interval 15m, got %v", cfg.Interval)
+	}
+	if cfg.Timeout != 10*time.Second {
+		t.Errorf("expected Timeout 10s, got %v", cfg.Timeout)
 	}
 }

@@ -384,8 +384,8 @@ func TestNewClient_DefaultHTTPClient(t *testing.T) {
 	if client.HTTPClient == nil {
 		t.Fatal("expected non-nil HTTPClient")
 	}
-	if client.HTTPClient.Timeout != 3*time.Second {
-		t.Errorf("expected default timeout 3s, got %v", client.HTTPClient.Timeout)
+	if client.HTTPClient.Timeout != 60*time.Second {
+		t.Errorf("expected default timeout 60s, got %v", client.HTTPClient.Timeout)
 	}
 }
 

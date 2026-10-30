@@ -25,7 +25,7 @@ A aplicação aceita variáveis de ambiente e flags de linha de comando:
 | — | `-dry-run` | `false` | Apenas simula e lista os modelos que seriam adicionados |
 | — | `-verbose` | `false` | Exibe logs detalhados de avaliação de cada modelo |
 | — | `-interval` | `0` *(executa uma vez)* | Intervalo de sincronização contínua (ex: `30m`, `1h`) |
-| — | `-timeout` | `3s` | Timeout para requisições HTTP |
+| `OMNIROUTE_TIMEOUT` | `-timeout` | `60s` | Timeout para requisições HTTP |
 
 > **Dica**: Você também pode criar um arquivo `.env` na raiz do projeto com as variáveis.
 

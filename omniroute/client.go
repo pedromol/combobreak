@@ -24,7 +24,7 @@ type Client struct {
 func NewClient(baseURL, apiKey string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout: 3 * time.Second,
+			Timeout: 60 * time.Second,
 		}
 	}
 

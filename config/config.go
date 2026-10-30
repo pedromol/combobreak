@@ -26,12 +26,21 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 	// Try loading .env if present
 	_ = loadDotEnv(".env")
 
+	defaultTimeout := 60 * time.Second
+	if envTimeout := os.Getenv("OMNIROUTE_TIMEOUT"); envTimeout != "" {
+		if d, err := time.ParseDuration(envTimeout); err == nil {
+			defaultTimeout = d
+		} else {
+			return nil, fmt.Errorf("invalid OMNIROUTE_TIMEOUT: %w", err)
+		}
+	}
+
 	cfg := &Config{
 		BaseURL:   getEnvOrDefault("OMNIROUTE_BASE_URL", "http://localhost:20128"),
 		APIKey:    os.Getenv("OMNIROUTE_API_KEY"),
 		ComboName: getEnvOrDefault("COMBO_NAME", "combobreak"),
 		Strategy:  getEnvOrDefault("COMBO_STRATEGY", "context-optimized"),
-		Timeout:   3 * time.Second,
+		Timeout:   defaultTimeout,
 	}
 
 	fs := flag.NewFlagSet("combobreak", flag.ContinueOnError)
@@ -42,7 +51,7 @@ func LoadFromEnvAndFlags(args []string) (*Config, error) {
 	fs.BoolVar(&cfg.DryRun, "dry-run", false, "Preview matching models without modifying combos in OmniRoute")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "Enable verbose logging of model evaluations")
 	fs.DurationVar(&cfg.Interval, "interval", 0, "Periodic sync interval (e.g. 1h, 30m). If 0, runs once and exits")
-	fs.DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "HTTP client timeout")
+	fs.DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "HTTP client timeout (env: OMNIROUTE_TIMEOUT)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err

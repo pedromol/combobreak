@@ -101,6 +101,7 @@ func printBanner(cfg *config.Config) {
 	fmt.Printf(" API Key     : %s\n", maskedKey)
 	fmt.Printf(" Combo Name  : %s\n", cfg.ComboName)
 	fmt.Printf(" Strategy    : %s\n", cfg.Strategy)
+	fmt.Printf(" Timeout     : %v\n", cfg.Timeout)
 	fmt.Printf(" Dry Run     : %t\n", cfg.DryRun)
 	fmt.Printf(" Verbose     : %t\n", cfg.Verbose)
 	if cfg.Interval > 0 {
